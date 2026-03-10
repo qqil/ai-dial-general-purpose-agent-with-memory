@@ -21,20 +21,41 @@ class SearchMemoryTool(BaseTool):
     @property
     def name(self) -> str:
         # TODO: provide self-descriptive name
-        raise NotImplementedError()
+        return "search_memory"
 
     @property
     def description(self) -> str:
         # TODO: provide tool description that will help LLM to understand when to use this tools and cover 'tricky'
         #  moments (not more 1024 chars)
-        raise NotImplementedError()
+        return "This tool is used to search for relevant long-term memories about the user based on a query. " \
+            "It should be used when you want to recall important information about the user that was stored previously. " \
+            "The query can be a question or keywords related to the information you want to find. " \
+            "The tool will return the most relevant memories based on semantic similarity, which means it can find relevant information even if the query doesn't exactly match the stored content. " \
+            "Use this tool to retrieve important context about the user that can inform your responses and actions. " \
+            "Remember that the quality of the search results depends on how well the memories were stored, so make sure to use the StoreMemoryTool effectively to capture important facts about the user."
 
     @property
     def parameters(self) -> dict[str, Any]:
         # TODO: provide tool parameters JSON Schema:
         #  - query is string, description: "The search query. Can be a question or keywords to find relevant memories", required
         #  - top_k is integer, description: "Number of most relevant memories to return.", minimum is 1, maximum is 20, default is 5
-        raise NotImplementedError()
+        return {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "The search query. Can be a question or keywords to find relevant memories"
+                },
+                "top_k": {
+                    "type": "integer",
+                    "description": "Number of most relevant memories to return.",
+                    "minimum": 1,
+                    "maximum": 20,
+                    "default": 5
+                }
+            },
+            "required": ["query"]
+        }
 
 
     async def _execute(self, tool_call_params: ToolCallParams) -> str:
@@ -47,4 +68,27 @@ class SearchMemoryTool(BaseTool):
         #    otherwise iterate through results and collect content, category and topics (if preset) in markdown format
         # 6. Add result to stage as markdown text
         # 7. Return result
-        raise NotImplementedError()
+        arguments = json.loads(tool_call_params.tool_call.function.arguments)
+        query = arguments.get("query")
+        top_k = arguments.get("top_k", 5)
+        api_key = tool_call_params.api_key
+
+        search_results: list[MemoryData] = await self.memory_store.search_memories(api_key=api_key, query=query, top_k=top_k)
+
+        if not search_results:
+            final_result = "No memories found."
+        else:
+            final_result = "Relevant memories:\n\n"
+            for idx, memory in enumerate(search_results, start=1):
+                final_result += f"### Memory {idx}\n"
+                if memory.content:
+                    final_result += f"- **Content**: {memory.content}\n"
+                if memory.category:
+                    final_result += f"- **Category**: {memory.category}\n"
+                if memory.topics:
+                    final_result += f"- **Topics**: {', '.join(memory.topics)}\n"
+                final_result += "\n"
+
+        tool_call_params.stage.append_content(final_result)
+        return final_result
+
